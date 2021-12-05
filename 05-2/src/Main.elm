@@ -13,77 +13,52 @@ solve str =
         |> List.length
 
 
+type alias Point =
+    ( Int, Int )
+
+
+type alias Line =
+    ( Point, Point )
+
+
 parseLine : String -> Line
 parseLine str =
     case String.split " -> " str of
         start :: end :: _ ->
-            Line start end
+            case ( List.filterMap String.toInt (String.split "," start), List.filterMap String.toInt (String.split "," end) ) of
+                ( [ x1, y1 ], [ x2, y2 ] ) ->
+                    ( ( x1, y1 ), ( x2, y2 ) )
+
+                _ ->
+                    Debug.todo "Invalid input"
 
         _ ->
             Debug.todo "Invalid input"
 
 
-type alias Point =
-    String
-
-
-getX point =
-    point |> String.split "," |> List.head |> Maybe.andThen String.toInt |> Maybe.withDefault 0
-
-
-getY point =
-    point |> String.split "," |> List.drop 1 |> List.head |> Maybe.andThen String.toInt |> Maybe.withDefault 0
-
-
-type alias Line =
-    { start : Point, end : Point }
-
-
-isHorizontal : Line -> Bool
-isHorizontal { start, end } =
-    getY start == getY end
-
-
-isVertical : Line -> Bool
-isVertical { start, end } =
-    getX start == getX end
-
-
-isDownRight : Line -> Bool
-isDownRight { start, end } =
-    if getX end >= getX start then
-        getY end >= getY start
+range : Int -> Int -> List Int
+range a b =
+    if a <= b then
+        List.range a b
 
     else
-        getY end < getY start
-
-
-toPointString : { x : Int, y : Int } -> String
-toPointString { x, y } =
-    String.fromInt x ++ "," ++ String.fromInt y
+        List.reverse (List.range b a)
 
 
 points : Line -> List Point
-points line =
-    if isHorizontal line then
-        List.range (min (getX line.start) (getX line.end)) (max (getX line.start) (getX line.end))
-            |> List.map (\x -> { x = x, y = getY line.start })
-            |> List.map toPointString
+points ( ( x1, y1 ), ( x2, y2 ) ) =
+    if y1 == y2 then
+        range x1 x2
+            |> List.map (\x -> ( x, y1 ))
 
-    else if isVertical line then
-        List.range (min (getY line.start) (getY line.end)) (max (getY line.start) (getY line.end))
-            |> List.map (\y -> { x = getX line.start, y = y })
-            |> List.map toPointString
-
-    else if isDownRight line then
-        List.map2 (\x y -> { x = x, y = y } |> toPointString)
-            (List.range (min (getX line.start) (getX line.end)) (max (getX line.start) (getX line.end)))
-            (List.range (min (getY line.start) (getY line.end)) (max (getY line.start) (getY line.end)))
+    else if x1 == x2 then
+        range y1 y2
+            |> List.map (\y -> ( x1, y ))
 
     else
-        List.map2 (\x y -> { x = x, y = y } |> toPointString)
-            (List.range (min (getX line.start) (getX line.end)) (max (getX line.start) (getX line.end)))
-            (List.reverse (List.range (min (getY line.start) (getY line.end)) (max (getY line.start) (getY line.end))))
+        List.map2 Tuple.pair
+            (range x1 x2)
+            (range y1 y2)
 
 
 intersections : List Line -> Dict Point Int
