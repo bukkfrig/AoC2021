@@ -8,8 +8,7 @@ solve str =
     str
         |> String.split ","
         |> List.filterMap String.toInt
-        |> Dict.Extra.groupBy identity
-        |> Dict.map (\_ fishes -> List.length fishes)
+        |> Dict.Extra.frequencies
         |> iterate 256 step
         |> Dict.values
         |> List.sum
