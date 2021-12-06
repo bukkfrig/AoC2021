@@ -30,13 +30,14 @@ step fishes =
         old n =
             Dict.get n fishes |> Maybe.withDefault 0
     in
-    fishes
-        |> Dict.insert 0 (old 1)
-        |> Dict.insert 1 (old 2)
-        |> Dict.insert 2 (old 3)
-        |> Dict.insert 3 (old 4)
-        |> Dict.insert 4 (old 5)
-        |> Dict.insert 5 (old 6)
-        |> Dict.insert 6 (old 7 + old 0)
-        |> Dict.insert 7 (old 8)
-        |> Dict.insert 8 (old 0)
+    Dict.fromList
+        [ ( 0, old 1 )
+        , ( 1, old 2 )
+        , ( 2, old 3 )
+        , ( 3, old 4 )
+        , ( 4, old 5 )
+        , ( 5, old 6 )
+        , ( 6, old 7 + old 0 )
+        , ( 7, old 8 )
+        , ( 8, old 0 )
+        ]
