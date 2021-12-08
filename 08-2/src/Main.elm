@@ -8,7 +8,9 @@ solve str =
     str
         |> String.lines
         |> List.map parseLine
-        |> List.map compute
+        |> List.map (Tuple.mapFirst decipher)
+        |> List.map (\( legend, readings ) -> List.map (canonicalize >> lookup legend) readings)
+        |> List.map fromDigits
         |> List.sum
 
 
@@ -22,65 +24,76 @@ parseLine str =
             Debug.todo "Invalid input"
 
 
-compute : ( List String, List String ) -> Int
-compute ( readings, digitStrings ) =
-    digitStrings
-        |> List.map (String.toList >> List.sort >> String.fromList)
-        |> List.map (\str -> Dict.get str (solvereadings readings) |> Maybe.withDefault -99999)
-        |> fromDigits
+lookup : Dict comparable b -> comparable -> b
+lookup dict comparable =
+    Dict.get comparable dict |> orElseCrash
 
 
 fromDigits : List Int -> Int
 fromDigits =
-    List.foldr (\n ( place, total ) -> ( place + 1, total + n * (10 ^ place) )) ( 0, 0 ) >> Tuple.second
+    List.foldl (\n acc -> n + acc * 10) 0
 
 
-sort : String -> String
-sort =
+canonicalize : String -> String
+canonicalize =
     String.toList >> List.sort >> String.fromList
 
 
-solvereadings : List String -> Dict String Int
-solvereadings readings =
+decipher : List String -> Dict String Int
+decipher readings =
     let
         one =
-            readings |> List.Extra.find (\reading -> String.length reading == 2) |> Maybe.withDefault ""
+            readings |> find (\it -> String.length it == 2)
 
         four =
-            readings |> List.Extra.find (\reading -> String.length reading == 4) |> Maybe.withDefault ""
+            readings |> find (\it -> String.length it == 4)
 
         seven =
-            readings |> List.Extra.find (\reading -> String.length reading == 3) |> Maybe.withDefault ""
+            readings |> find (\it -> String.length it == 3)
 
         eight =
-            readings |> List.Extra.find (\reading -> String.length reading == 7) |> Maybe.withDefault ""
+            readings |> find (\it -> String.length it == 7)
 
         six =
-            readings |> List.Extra.find (\reading -> String.length reading == 6 && not (reading |> contains one)) |> Maybe.withDefault ""
+            readings |> find (\it -> String.length it == 6 && not (it |> contains one))
 
         nine =
-            readings |> List.Extra.find (\reading -> String.length reading == 6 && (reading |> contains four)) |> Maybe.withDefault ""
+            readings |> find (\it -> String.length it == 6 && (it |> contains four))
 
         zero =
-            readings |> List.Extra.find (\reading -> String.length reading == 6 && not (reading == six || reading == nine)) |> Maybe.withDefault ""
+            readings |> find (\it -> String.length it == 6 && not (it == six || it == nine))
 
         three =
-            readings |> List.Extra.find (\reading -> String.length reading == 5 && (reading |> contains one)) |> Maybe.withDefault ""
+            readings |> find (\it -> String.length it == 5 && (it |> contains one))
 
         five =
-            readings |> List.Extra.find (\reading -> String.length reading == 5 && (six |> contains reading)) |> Maybe.withDefault ""
+            readings |> find (\it -> String.length it == 5 && (six |> contains it))
 
         two =
-            readings |> List.Extra.find (\reading -> String.length reading == 5 && not (six |> contains reading) && not (reading == three)) |> Maybe.withDefault ""
+            readings |> find (\it -> String.length it == 5 && not (it == three || it == five))
     in
-    List.map2 Tuple.pair
-        ([ zero, one, two, three, four, five, six, seven, eight, nine ] |> List.map sort)
-        (List.range 0 9)
+    List.Extra.zip [ zero, one, two, three, four, five, six, seven, eight, nine ] (List.range 0 9)
+        |> List.map (Tuple.mapFirst canonicalize)
         |> Dict.fromList
 
 
+find : (x -> Bool) -> List x -> x
+find f xs =
+    List.Extra.find f xs |> orElseCrash
+
+
+orElseCrash : Maybe a -> a
+orElseCrash maybe =
+    case maybe of
+        Just a ->
+            a
+
+        Nothing ->
+            Debug.todo ""
+
+
+contains : String -> String -> Bool
 contains reading1 reading2 =
     reading1
         |> String.toList
-        |> List.any (\c -> List.member c (reading2 |> String.toList) |> not)
-        |> not
+        |> List.all (\c -> List.member c (String.toList reading2))
