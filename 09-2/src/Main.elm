@@ -1,13 +1,12 @@
 module Main exposing (..)
 
-import Array exposing (Array)
-import Matrix
-import Set
+import Array
+import Matrix exposing (Matrix)
 
 
 solve str =
     let
-        heightMap : Array (Array Int)
+        heightMap : Matrix Int
         heightMap =
             String.lines str
                 |> List.map (String.split "" >> List.filterMap String.toInt)
@@ -20,63 +19,24 @@ solve str =
         |> List.foldl (*) 1
 
 
-risk : Int -> Int
-risk height =
-    height + 1
+type alias Point a =
+    { x : Int, y : Int, value : a }
 
 
-basinSize : Array (Array Int) -> Point -> Int
-basinSize heightMap { x, y } =
-    addNeighboursWhere (not << (==) 9) heightMap [] ( x, y )
-        -- shouldn't need to dedupe, must be a bug producing dupes...
-        |> (Set.fromList >> Set.toList)
-        |> Debug.log "Basin members: "
-        |> List.length
-        |> Debug.log "Basin size: "
+neighbours : Matrix a -> Int -> Int -> List (Point a)
+neighbours matrix x y =
+    Array.fromList [ ( x - 1, y ), ( x, y - 1 ), ( x, y + 1 ), ( x + 1, y ) ]
+        |> Array.map (\( xn, yn ) -> Matrix.get matrix xn yn |> Maybe.map (Point xn yn))
+        |> Array.toList
+        |> List.filterMap identity
 
 
-addNeighboursWhere : (Int -> Bool) -> Array (Array Int) -> List ( Int, Int ) -> ( Int, Int ) -> List ( Int, Int )
-addNeighboursWhere f matrix visited ( x, y ) =
-    let
-        visited_ =
-            ( x, y ) :: visited
-
-        eligibleNeighbours =
-            neighbours matrix x y
-                |> Array.toList
-                |> List.filterMap identity
-                |> List.filter (.height >> f)
-                |> List.map (\point -> ( point.x, point.y ))
-                |> List.filter (\point -> not <| List.member point visited_)
-    in
-    eligibleNeighbours
-        |> List.foldl
-            (\neighbour ( acc, newlyVisited ) ->
-                let
-                    new =
-                        addNeighboursWhere f matrix (neighbour :: newlyVisited ++ visited_) neighbour
-                in
-                ( acc ++ new, neighbour :: new ++ newlyVisited )
-            )
-            ( [], [] )
-        |> Tuple.first
-        |> (::) ( x, y )
-
-
-type alias Point =
-    { x : Int, y : Int, height : Int }
-
-
-lowPoints : Array (Array Int) -> List Point
+lowPoints : Matrix Int -> List (Point Int)
 lowPoints heightMap =
     heightMap
         |> Matrix.indexedMap
             (\x y height ->
-                let
-                    neighbours_ =
-                        neighbours heightMap x y |> Array.toList |> List.filterMap identity
-                in
-                if List.all (\neighbour -> neighbour.height > height) neighbours_ then
+                if List.all (\{ value } -> value > height) (neighbours heightMap x y) then
                     Just (Point x y height)
 
                 else
@@ -87,13 +47,31 @@ lowPoints heightMap =
         |> List.concatMap (List.filterMap identity)
 
 
-neighbours : Array (Array Int) -> Int -> Int -> Array (Maybe Point)
-neighbours matrix x y =
-    Array.map (\( xn, yn ) -> Matrix.get matrix xn yn |> Maybe.map (Point xn yn))
-        (Array.fromList
-            [ ( x - 1, y )
-            , ( x, y - 1 )
-            , ( x, y + 1 )
-            , ( x + 1, y )
-            ]
-        )
+basinSize : Matrix Int -> Point Int -> Int
+basinSize heightMap point =
+    heightMap
+        |> spreadWhile (not << (==) 9) point
+        |> List.length
+
+
+spreadWhile : (a -> Bool) -> Point a -> Matrix a -> List (Point a)
+spreadWhile f start matrix =
+    let
+        ( _, kept ) =
+            spreadWhileHelp f start matrix ( [ start ], [ start ] )
+    in
+    kept
+
+
+spreadWhileHelp : (a -> Bool) -> Point a -> Matrix a -> ( List (Point a), List (Point a) ) -> ( List (Point a), List (Point a) )
+spreadWhileHelp f here matrix ( visited, kept ) =
+    neighbours matrix here.x here.y
+        |> List.foldl
+            (\neighbour ( visited_, kept_ ) ->
+                if f neighbour.value && (not <| List.member neighbour visited_) then
+                    spreadWhileHelp f neighbour matrix ( neighbour :: visited_, neighbour :: kept_ )
+
+                else
+                    ( visited_, kept_ )
+            )
+            ( visited, kept )
