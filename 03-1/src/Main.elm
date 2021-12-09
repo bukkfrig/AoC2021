@@ -1,7 +1,6 @@
 module Main exposing (..)
 
 
-solve : String -> Int
 solve str =
     gamma (String.lines str) * epsilon (String.lines str)
 
@@ -14,21 +13,37 @@ gamma lines =
     in
     List.range 0 (bits - 1)
         |> List.map
-            (\index -> 
+            (\index ->
                 List.foldl
-                    (\report (ones, zeroes) ->
+                    (\report ( ones, zeroes ) ->
                         case String.slice index (index + 1) report of
-                           "1" -> (ones + 1, zeroes)
-                           "0" -> (ones, zeroes + 1)
-                           _ -> (ones, zeroes)
+                            "1" ->
+                                ( ones + 1, zeroes )
+
+                            "0" ->
+                                ( ones, zeroes + 1 )
+
+                            _ ->
+                                ( ones, zeroes )
                     )
-                    (0,0)
+                    ( 0, 0 )
                     lines
             )
-            |> List.map (\(ones, zeroes) -> if ones > zeroes then One else Zero)
-            |> fromBinary
+        |> List.map
+            (\( ones, zeroes ) ->
+                if ones > zeroes then
+                    One
 
-type Bit = One | Zero
+                else
+                    Zero
+            )
+        |> fromBinary
+
+
+type Bit
+    = One
+    | Zero
+
 
 fromBinary : List Bit -> Int
 fromBinary bits =
@@ -54,16 +69,28 @@ epsilon lines =
     in
     List.range 0 (bits - 1)
         |> List.map
-            (\index -> 
+            (\index ->
                 List.foldl
-                    (\report (ones, zeroes) ->
+                    (\report ( ones, zeroes ) ->
                         case String.slice index (index + 1) report of
-                           "1" -> (ones + 1, zeroes)
-                           "0" -> (ones, zeroes + 1)
-                           _ -> (ones, zeroes)
+                            "1" ->
+                                ( ones + 1, zeroes )
+
+                            "0" ->
+                                ( ones, zeroes + 1 )
+
+                            _ ->
+                                ( ones, zeroes )
                     )
-                    (0,0)
+                    ( 0, 0 )
                     lines
             )
-            |> List.map (\(ones, zeroes) -> if ones < zeroes then One else Zero)
-            |> fromBinary
+        |> List.map
+            (\( ones, zeroes ) ->
+                if ones < zeroes then
+                    One
+
+                else
+                    Zero
+            )
+        |> fromBinary
