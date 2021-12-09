@@ -1,36 +1,52 @@
-module Main exposing (main)
+module Main exposing (..)
 
-import Html
 
-main : Html.Html msg
-main = 
-    (Html.text << Debug.toString)
-        ( String.lines input
-            |> List.filterMap instructionFromString
-            |> List.foldl move { horizontal = 0, depth = 0, aim = 0 }
-            |> (\{ horizontal, depth } -> horizontal * depth)
-        ) 
+solve str =
+    String.lines str
+        |> List.filterMap instructionFromString
+        |> List.foldl move { horizontal = 0, depth = 0 }
+        |> (\{ horizontal, depth } -> horizontal * depth)
 
-type alias Position = { horizontal: Int, depth: Int, aim: Int }
 
-type Instruction = Forward Int | Down Int | Up Int
+type alias Position =
+    { horizontal : Int, depth : Int }
+
+
+type Instruction
+    = Forward Int
+    | Down Int
+    | Up Int
+
 
 move : Instruction -> Position -> Position
 move instruction position =
     case instruction of
-        Forward n -> { position | horizontal = position.horizontal + n, depth = position.depth + position.aim * n }
-        Down n -> { position | aim = position.aim + n }
-        Up n -> { position | aim = position.aim - n }
+        Forward n ->
+            { position | horizontal = position.horizontal + n }
 
-instructionFromString: String -> Maybe Instruction
+        Down n ->
+            { position | depth = position.depth + n }
+
+        Up n ->
+            { position | depth = position.depth - n }
+
+
+instructionFromString : String -> Maybe Instruction
 instructionFromString str =
     case String.split " " str of
         dirStr :: nStr :: [] ->
-            case (dirStr, String.toInt nStr) of
-                ("forward", Just n) -> Just (Forward n)
-                ("down", Just n) -> Just (Down n)
-                ("up", Just n) -> Just (Up n)
-                _ -> Nothing
-        _ -> Nothing
+            case ( dirStr, String.toInt nStr ) of
+                ( "forward", Just n ) ->
+                    Just (Forward n)
 
-input = Debug.todo ""
+                ( "down", Just n ) ->
+                    Just (Down n)
+
+                ( "up", Just n ) ->
+                    Just (Up n)
+
+                _ ->
+                    Nothing
+
+        _ ->
+            Nothing
