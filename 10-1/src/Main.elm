@@ -70,6 +70,7 @@ parseChunkHelp chunk stack =
                     Debug.todo "Invalid character"
 
         [] ->
+            -- Bug here that doesn't matter for part one, see part 2 for fixed version
             Ok ()
 
 
@@ -84,6 +85,7 @@ expectPoppedThen return stack actual expect =
                 Err (Corrupted actual)
 
         [] ->
+            -- Bug here that doesn't matter for part one, see part 2 for fixed version
             Err Incomplete
 
 
