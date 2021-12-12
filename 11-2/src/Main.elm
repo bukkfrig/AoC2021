@@ -5,7 +5,7 @@ import Array exposing (Array)
 
 solve str =
     parse str
-        |> synchronize
+        |> synchronize 0
 
 
 parse : String -> Array (Array Int)
@@ -16,49 +16,23 @@ parse str =
         |> Array.fromList
 
 
-iterate : Int -> (a -> a) -> a -> a
-iterate times f a =
-    if times <= 0 then
-        a
-
-    else
-        iterate (times - 1) f (f a)
-
-
-synchronize : Array (Array Int) -> Int
-synchronize data =
-    step { numFlashes = 0, data = data, iterations = 1 }
-
-
-step : { numFlashes : Int, data : Array (Array Int), iterations : Int } -> Int
-step { numFlashes, data, iterations } =
+synchronize : Int -> Array (Array Int) -> Int
+synchronize iterations data =
     let
         result =
-            stepHelp { numFlashes = numFlashes, data = data }
-    in
-    if result.newFlashes == List.length (elements data) then
-        iterations
-
-    else
-        step { numFlashes = result.numFlashes, data = result.data, iterations = iterations + 1 }
-
-
-stepHelp : { numFlashes : Int, data : Array (Array Int) } -> { numFlashes : Int, data : Array (Array Int), newFlashes : Int }
-stepHelp { numFlashes, data } =
-    let
-        octopi =
             flash
-                { flashed = []
+                { flashing = []
                 , octopi =
                     data
                         |> map ((+) 1)
-                        |> map (\energy -> { flashed = False, energy = energy })
+                        |> map (\energy -> { flashing = False, energy = energy })
                 }
     in
-    { numFlashes = numFlashes + List.length octopi.flashed
-    , newFlashes = List.length octopi.flashed
-    , data = octopi.octopi |> map .energy
-    }
+    if all .flashing result.octopi then
+        iterations + 1
+
+    else
+        synchronize (iterations + 1) (map .energy result.octopi)
 
 
 
@@ -66,54 +40,59 @@ stepHelp { numFlashes, data } =
 
 
 type alias Octopus =
-    { flashed : Bool, energy : Int }
+    { flashing : Bool, energy : Int }
 
 
 shouldFlash : Octopus -> Bool
-shouldFlash { flashed, energy } =
-    not flashed && energy > 9
+shouldFlash { flashing, energy } =
+    not flashing && energy > 9
 
 
-flash : { flashed : List (Point Octopus), octopi : Array (Array Octopus) } -> { flashed : List (Point Octopus), octopi : Array (Array Octopus) }
-flash { flashed, octopi } =
+flash :
+    { flashing : List (Point Octopus), octopi : Array (Array Octopus) }
+    -> { flashing : List (Point Octopus), octopi : Array (Array Octopus) }
+flash { flashing, octopi } =
     let
-        newFlashers : List (Point Octopus)
-        newFlashers =
+        startedFlashing =
             octopi
                 |> indexedMap (\x y -> Point ( x, y ))
                 |> elements
                 |> List.filter (.value >> shouldFlash)
     in
-    if newFlashers == [] then
-        { flashed = flashed
-        , octopi = octopi |> resetFlashers flashed
+    if not <| List.isEmpty startedFlashing then
+        { flashing = startedFlashing ++ flashing
+        , octopi =
+            octopi
+                |> markFlashing startedFlashing
+                |> energizeNeighboursOf startedFlashing
         }
+            |> flash
 
     else
-        flash
-            { flashed = flashed ++ newFlashers
-            , octopi =
-                octopi
-                    |> markFlashers newFlashers
-                    |> flashNeighbours newFlashers
-            }
+        { flashing = flashing
+        , octopi = octopi |> resetFlashing flashing
+        }
 
 
-markFlashers : List (Point Octopus) -> Array (Array Octopus) -> Array (Array Octopus)
-markFlashers flashers octopi =
-    List.foldl (\{ pos } -> update pos (\octopus -> { octopus | flashed = True })) octopi flashers
+markFlashing : List (Point Octopus) -> Array (Array Octopus) -> Array (Array Octopus)
+markFlashing xs octopi =
+    List.foldl (\{ pos } -> update pos (\octopus -> { octopus | flashing = True }))
+        octopi
+        xs
 
 
-flashNeighbours : List (Point Octopus) -> Array (Array Octopus) -> Array (Array Octopus)
-flashNeighbours flashers octopi =
-    flashers
-        |> List.concatMap (\{ pos } -> neighbours octopi pos)
-        |> List.foldl (\{ pos } -> update pos (\octopus -> { octopus | energy = octopus.energy + 1 })) octopi
+energizeNeighboursOf : List (Point Octopus) -> Array (Array Octopus) -> Array (Array Octopus)
+energizeNeighboursOf xs octopi =
+    List.foldl (\{ pos } -> update pos (\octopus -> { octopus | energy = octopus.energy + 1 }))
+        octopi
+        (List.concatMap (\{ pos } -> neighbours octopi pos) xs)
 
 
-resetFlashers : List (Point Octopus) -> Array (Array Octopus) -> Array (Array Octopus)
-resetFlashers flashers octopi =
-    List.foldl (\{ pos } -> update pos (\octopus -> { octopus | energy = 0 })) octopi flashers
+resetFlashing : List (Point Octopus) -> Array (Array Octopus) -> Array (Array Octopus)
+resetFlashing xs octopi =
+    List.foldl (\{ pos } -> update pos (\octopus -> { octopus | energy = 0 }))
+        octopi
+        xs
 
 
 
@@ -128,6 +107,11 @@ foldl f =
 elements : Array (Array a) -> List a
 elements =
     foldl (::) []
+
+
+all : (a -> Bool) -> Array (Array a) -> Bool
+all f array =
+    elements array |> List.all f
 
 
 map : (a -> b) -> Array (Array a) -> Array (Array b)
