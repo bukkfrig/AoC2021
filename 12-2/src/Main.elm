@@ -1,54 +1,10 @@
 module Main exposing (..)
 
-import Html exposing (small)
-
 
 solve str =
     parse str
         |> paths (Cave "start" Small) (Cave "end" Small)
         |> List.length
-
-
-parse : String -> List Edge
-parse str =
-    str
-        |> String.lines
-        |> List.map
-            (\line ->
-                case String.split "-" line of
-                    a :: b :: [] ->
-                        ( fromString a, fromString b )
-
-                    _ ->
-                        Debug.todo "Invalid input"
-            )
-
-
-fromString : String -> Cave
-fromString str =
-    if String.toUpper str == str then
-        Cave str Big
-
-    else
-        Cave str Small
-
-
-{-| A bi-directional edge between two caves.
--}
-type alias Edge =
-    ( Cave, Cave )
-
-
-other : Cave -> Edge -> Maybe Cave
-other cave ( a, b ) =
-    if a == cave then
-        Just b
-
-    else if b == cave then
-        Just a
-
-    else
-        Nothing
 
 
 type Size
@@ -60,13 +16,49 @@ type Cave
     = Cave String Size
 
 
-isSmall cave =
-    case cave of
-        Cave _ Small ->
-            True
+type alias Edge =
+    ( Cave, Cave )
 
-        Cave _ Big ->
-            False
+
+parse : String -> List Edge
+parse str =
+    str
+        |> String.lines
+        |> List.map
+            (\line ->
+                case String.split "-" line of
+                    a :: b :: [] ->
+                        ( caveFromString a, caveFromString b )
+
+                    _ ->
+                        Debug.todo "Invalid input"
+            )
+
+
+caveFromString : String -> Cave
+caveFromString str =
+    if String.toUpper str == str then
+        Cave str Big
+
+    else
+        Cave str Small
+
+
+followEdgeFrom : Cave -> Edge -> Maybe Cave
+followEdgeFrom cave ( a, b ) =
+    if a == cave then
+        Just b
+
+    else if b == cave then
+        Just a
+
+    else
+        Nothing
+
+
+isSmall : Cave -> Bool
+isSmall (Cave _ size) =
+    size == Small
 
 
 paths : Cave -> Cave -> List Edge -> List (List Cave)
@@ -79,16 +71,14 @@ paths start end edges =
 
             else
                 let
-                    path =
-                        here :: trail
+                    alreadyVisitedSmallTwice =
+                        (here :: trail)
+                            |> List.any (\cave -> isSmall cave && (((here :: trail) |> List.filter ((==) cave) |> List.length) >= 2))
 
-                    alreadyDoubleVisited =
-                        List.any (\cave -> isSmall cave && ((path |> List.filter ((==) cave) |> List.length) >= 2)) path
-
-                    neighbours =
-                        List.filterMap (other here) edges
-                            |> List.filter (\cave -> not (isSmall cave) || not (List.member cave path) || ((cave /= Cave "start" Small) && not alreadyDoubleVisited))
+                    nextCaves =
+                        List.filterMap (followEdgeFrom here) edges
+                            |> List.filter (\cave -> not (isSmall cave) || not (List.member cave trail) || (cave /= start && not alreadyVisitedSmallTwice))
                 in
-                List.concatMap (go path) neighbours
+                List.concatMap (go (here :: trail)) nextCaves
     in
     go [] start
