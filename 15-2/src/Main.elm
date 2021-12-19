@@ -100,7 +100,7 @@ shortestPath { start, end, toEdges, zeroCost, combineCosts, compareCosts } =
                                         Dict.insert neighbour newPathCost acc
                             )
                             costs
-                            (toEdges here)
+                            (toEdges here |> List.filter (\( node, _ ) -> not <| Set.member node visited))
 
                     next =
                         Dict.toList newCosts
@@ -156,7 +156,7 @@ shortestPathCost { start, end, toEdges, zeroCost, combineCosts, compareCosts } =
                                         Dict.insert neighbour newPathCost acc
                             )
                             costs
-                            (toEdges here)
+                            (toEdges here |> List.filter (\( node, _ ) -> not <| Set.member node visited))
 
                     next =
                         Dict.toList newCosts
