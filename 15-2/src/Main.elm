@@ -2,20 +2,21 @@ module Main exposing (..)
 
 import Array exposing (Array)
 import List.Extra
+import Set exposing (Set)
 
 
 solve str =
     let
         risks =
-            parse str
+            expand 5 (parse str)
 
         height =
-            5 * Array.length risks
+            Array.length risks
 
         width =
-            5 * (Array.get 0 risks |> orElseCrash "a" |> Array.length)
+            Array.get 0 risks |> orElseCrash "a" |> Array.length
     in
-    minimizeRisk ( 0, 0 ) ( width - 1, height - 1 ) (expand 5 risks)
+    minimizeRisk ( 0, 0 ) ( width - 1, height - 1 ) risks
 
 
 parse : String -> Array (Array Int)
@@ -33,7 +34,7 @@ expand n risks =
             Array.get 0 risks |> orElseCrash "a" |> Array.length
 
         init =
-            Array.initialize (height * 5) (always <| Array.initialize (width * 5) (always 0))
+            Array.initialize (height * n) (always <| Array.initialize (width * n) (always 0))
 
         increment x =
             if x <= 8 then
@@ -58,68 +59,79 @@ expand n risks =
 minimizeRisk : ( Int, Int ) -> ( Int, Int ) -> Array (Array Int) -> Int
 minimizeRisk start end risks =
     let
-        visited : Array (Array Bool)
-        visited =
-            risks |> map (always False)
-
         costs : Array (Array (Maybe Int))
         costs =
             risks |> map (always Nothing) |> set start (Just 0)
 
+        risk : ( Int, Int ) -> Maybe Int
         risk pos =
-            get pos risks |> orElseCrash "b"
+            get pos risks
 
-        go : ( Int, Int ) -> ( Array (Array (Maybe Int)), Array (Array Bool) ) -> Int
-        go here ( costs_, visited_ ) =
+        go : ( Int, Int ) -> ( Array (Array (Maybe Int)), Set ( Int, Int ) ) -> Int
+        go here ( costs_, visited ) =
             let
                 hereNeighbours =
-                    neighbours costs_ here |> List.filter (\{ pos } -> not (get pos visited_ |> orElseCrash "c"))
+                    neighbouringPositions here |> List.filter (\pos -> not (Set.member pos visited))
 
-                cost : ( Int, Int ) -> Maybe Int
+                cost : ( Int, Int ) -> Maybe (Maybe Int)
                 cost pos =
-                    get pos costs_ |> orElseCrash "d"
+                    get pos costs_
 
                 newCosts =
-                    List.foldl (\{ pos } -> set pos (Just <| best ((cost here |> orElseCrash "e") + risk pos) (cost pos))) costs_ hereNeighbours
+                    List.foldl
+                        (\pos ->
+                            let
+                                newPathCost =
+                                    cost here
+                                        |> Maybe.andThen identity
+                                        |> Maybe.map2 (+) (risk pos)
+
+                                existingCost =
+                                    cost pos |> Maybe.andThen identity
+
+                                bestCost =
+                                    case Maybe.map2 min newPathCost existingCost of
+                                        Just best ->
+                                            Just best
+
+                                        Nothing ->
+                                            newPathCost
+                            in
+                            set pos bestCost
+                        )
+                        costs_
+                        hereNeighbours
 
                 newVisited =
-                    set here True visited_
+                    Set.insert here visited
 
                 isVisited pos =
-                    get pos newVisited |> orElseCrash "f"
-
-                done =
-                    isVisited end
+                    Set.member pos newVisited
             in
-            if done then
-                cost end |> orElseCrash "g"
+            if here == end then
+                cost end |> Maybe.andThen identity |> orElseCrash "j"
 
             else
                 let
                     nextPos =
-                        points costs_
+                        points newCosts
                             |> List.filterMap
-                                (\{ pos } ->
-                                    case ( isVisited pos, get pos newCosts |> orElseCrash "h" ) of
+                                (\( pos, value ) ->
+                                    case ( isVisited pos, value ) of
                                         ( False, Just cost_ ) ->
-                                            Just (Point pos cost_)
+                                            Just (Tuple.pair pos cost_)
 
                                         _ ->
                                             Nothing
                                 )
-                            |> List.Extra.minimumBy .value
+                            |> List.Extra.minimumBy Tuple.second
                             |> orElseCrash "i"
-                            |> .pos
+                            |> Tuple.first
                             |> Debug.log "Next position: "
                 in
                 go nextPos ( newCosts, newVisited )
     in
-    go start ( costs, visited )
-
-
-best : Int -> Maybe Int -> Int
-best here maybeThere =
-    Maybe.map (min here) maybeThere |> Maybe.withDefault here
+    go start ( costs, Set.empty )
 
 
 iterate : Int -> (a -> a) -> a -> a
@@ -147,17 +159,27 @@ orElseCrash str maybe =
 
 
 type alias Point a =
-    { pos : ( Int, Int ), value : a }
+    ( ( Int, Int ), a )
 
 
-neighbours : Array (Array a) -> ( Int, Int ) -> List (Point a)
-neighbours array ( x, y ) =
+neighbouringPositions : ( Int, Int ) -> List ( Int, Int )
+neighbouringPositions ( x, y ) =
+    List.map (\( dx, dy ) -> ( x + dx, y + dy ))
+        [ ( 0, -1 )
+        , ( -1, 0 )
+        , ( 1, 0 )
+        , ( 0, 1 )
+        ]
+
+
+neighbouringPoints : Array (Array a) -> ( Int, Int ) -> List (Point a)
+neighbouringPoints array ( x, y ) =
     List.filterMap
         (\( dx, dy ) ->
             array
                 |> Array.get (y + dy)
                 |> Maybe.andThen (Array.get (x + dx))
-                |> Maybe.map (Point ( x + dx, y + dy ))
+                |> Maybe.map (Tuple.pair ( x + dx, y + dy ))
         )
         [ ( 0, -1 )
         , ( -1, 0 )
@@ -178,7 +200,7 @@ foldl f =
 
 indexedFoldl : (( Int, Int ) -> a -> b -> b) -> b -> Array (Array a) -> b
 indexedFoldl f init xs =
-    List.foldl (\{ pos, value } -> f pos value) init (points xs)
+    List.foldl (\( pos, value ) -> f pos value) init (points xs)
 
 
 elements : Array (Array a) -> List a
@@ -198,24 +220,14 @@ get ( x, y ) xs =
 
 points : Array (Array a) -> List (Point a)
 points =
-    indexedMap Point >> elements
+    indexedMap Tuple.pair >> elements
 
 
 set : ( Int, Int ) -> a -> Array (Array a) -> Array (Array a)
-set pos a =
-    update pos (always a)
-
-
-update : ( Int, Int ) -> (a -> a) -> Array (Array a) -> Array (Array a)
-update ( x, y ) f xs =
+set ( x, y ) a xs =
     case Array.get y xs of
         Just row ->
-            case Array.get x row of
-                Just a ->
-                    xs |> Array.set y (row |> Array.set x (f a))
-
-                Nothing ->
-                    xs
+            Array.set y (row |> Array.set x a) xs
 
         Nothing ->
             xs
