@@ -1,8 +1,8 @@
 module Main exposing (..)
 
 import Array exposing (Array)
-import List.Extra
-import Set exposing (Set)
+import Dict
+import Set
 
 
 solve str =
@@ -14,9 +14,20 @@ solve str =
             Array.length risks
 
         width =
-            Array.get 0 risks |> orElseCrash "a" |> Array.length
+            Array.get 0 risks |> orElseCrash "No rows in expanded version?" |> Array.length
     in
-    minimizeRisk ( 0, 0 ) ( width - 1, height - 1 ) risks
+    shortestPath
+        { start = ( 0, 0 )
+        , end = ( width - 1, height - 1 )
+        , toEdges = neighbouringPoints risks
+        , zeroCost = 0
+        , combineCosts = (+)
+        , compareCosts = Basics.compare
+        }
+        |> orElseCrash "No path?"
+        |> List.head
+        |> orElseCrash "Empty path?"
+        |> Tuple.second
 
 
 parse : String -> Array (Array Int)
@@ -31,7 +42,7 @@ expand n risks =
             Array.length risks
 
         width =
-            Array.get 0 risks |> orElseCrash "a" |> Array.length
+            Array.get 0 risks |> orElseCrash "No rows to expand?" |> Array.length
 
         init =
             Array.initialize (height * n) (always <| Array.initialize (width * n) (always 0))
@@ -56,82 +67,62 @@ expand n risks =
         (List.range 0 (n - 1))
 
 
-minimizeRisk : ( Int, Int ) -> ( Int, Int ) -> Array (Array Int) -> Int
-minimizeRisk start end risks =
+shortestPath :
+    { start : comparable
+    , end : comparable
+    , toEdges : comparable -> List ( comparable, cost )
+    , zeroCost : cost
+    , combineCosts : cost -> cost -> cost
+    , compareCosts : cost -> cost -> Order
+    }
+    -> Maybe (List ( comparable, cost ))
+shortestPath { start, end, toEdges, zeroCost, combineCosts, compareCosts } =
     let
-        costs : Array (Array (Maybe Int))
-        costs =
-            risks |> map (always Nothing) |> set start (Just 0)
-
-        risk : ( Int, Int ) -> Maybe Int
-        risk pos =
-            get pos risks
-
-        go : ( Int, Int ) -> ( Array (Array (Maybe Int)), Set ( Int, Int ) ) -> Int
-        go here ( costs_, visited ) =
-            let
-                hereNeighbours =
-                    neighbouringPositions here |> List.filter (\pos -> not (Set.member pos visited))
-
-                cost : ( Int, Int ) -> Maybe (Maybe Int)
-                cost pos =
-                    get pos costs_
-
-                newCosts =
-                    List.foldl
-                        (\pos ->
-                            let
-                                newPathCost =
-                                    cost here
-                                        |> Maybe.andThen identity
-                                        |> Maybe.map2 (+) (risk pos)
-
-                                existingCost =
-                                    cost pos |> Maybe.andThen identity
-
-                                bestCost =
-                                    case Maybe.map2 min newPathCost existingCost of
-                                        Just best ->
-                                            Just best
-
-                                        Nothing ->
-                                            newPathCost
-                            in
-                            set pos bestCost
-                        )
-                        costs_
-                        hereNeighbours
-
-                newVisited =
-                    Set.insert here visited
-
-                isVisited pos =
-                    Set.member pos newVisited
-            in
+        go ( here, costToHere ) ( costs, visited, trail ) =
             if here == end then
-                cost end |> Maybe.andThen identity |> orElseCrash "j"
+                Just (( here, costToHere ) :: trail)
 
             else
                 let
-                    nextPos =
-                        points newCosts
-                            |> List.filterMap
-                                (\( pos, value ) ->
-                                    case ( isVisited pos, value ) of
-                                        ( False, Just cost_ ) ->
-                                            Just (Tuple.pair pos cost_)
+                    newCosts =
+                        List.foldl
+                            (\( neighbour, costFromHere ) ->
+                                let
+                                    newPathCost =
+                                        combineCosts costToHere costFromHere
 
-                                        _ ->
-                                            Nothing
-                                )
-                            |> List.Extra.minimumBy Tuple.second
-                            |> orElseCrash "i"
-                            |> Tuple.first
-                            |> Debug.log "Next position: "
+                                    best =
+                                        case Dict.get neighbour costs of
+                                            Just existingCost ->
+                                                if compareCosts newPathCost existingCost == LT then
+                                                    newPathCost
+
+                                                else
+                                                    existingCost
+
+                                            Nothing ->
+                                                newPathCost
+                                in
+                                Dict.insert neighbour best
+                            )
+                            costs
+                            (toEdges here)
+
+                    next =
+                        Dict.toList newCosts
+                            |> List.filter (\( node, _ ) -> not <| Set.member node visited)
+                            |> List.sortWith (\( _, cost1 ) ( _, cost2 ) -> compareCosts cost1 cost2)
+                            |> List.head
+                            |> Debug.log "Next position? "
                 in
-                go nextPos ( newCosts, newVisited )
+                case next of
+                    Nothing ->
+                        Nothing
+
+                    Just next_ ->
+                        go next_ ( newCosts, Set.insert here visited, ( here, costToHere ) :: trail )
     in
-    go start ( costs, Set.empty )
+    go ( start, zeroCost ) ( Dict.empty, Set.empty, [] )
 
 
 iterate : Int -> (a -> a) -> a -> a
@@ -176,9 +167,7 @@ neighbouringPoints : Array (Array a) -> ( Int, Int ) -> List (Point a)
 neighbouringPoints array ( x, y ) =
     List.filterMap
         (\( dx, dy ) ->
-            array
-                |> Array.get (y + dy)
-                |> Maybe.andThen (Array.get (x + dx))
+            get ( x + dx, y + dy ) array
                 |> Maybe.map (Tuple.pair ( x + dx, y + dy ))
         )
         [ ( 0, -1 )
