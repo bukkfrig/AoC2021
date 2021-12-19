@@ -86,24 +86,21 @@ shortestPath { start, end, toEdges, zeroCost, combineCosts, compareCosts } =
                 let
                     newCosts =
                         List.foldl
-                            (\( neighbour, costFromHere ) ->
+                            (\( neighbour, costFromHere ) acc ->
                                 let
                                     newPathCost =
                                         combineCosts costToHere costFromHere
-
-                                    best =
-                                        case Dict.get neighbour costs of
-                                            Just existingCost ->
-                                                if compareCosts newPathCost existingCost == LT then
-                                                    newPathCost
-
-                                                else
-                                                    existingCost
-
-                                            Nothing ->
-                                                newPathCost
                                 in
-                                Dict.insert neighbour best
+                                case Dict.get neighbour acc of
+                                    Just existingCost ->
+                                        if compareCosts newPathCost existingCost == LT then
+                                            Dict.insert neighbour newPathCost acc
+
+                                        else
+                                            acc
+
+                                    Nothing ->
+                                        Dict.insert neighbour newPathCost acc
                             )
                             costs
                             (toEdges here)
@@ -115,11 +112,11 @@ shortestPath { start, end, toEdges, zeroCost, combineCosts, compareCosts } =
                             |> List.head
                             |> Debug.log "Next position? "
                 in
-                case next of
-                    Nothing ->
+                case ( next, () ) of
+                    ( Nothing, () ) ->
                         Nothing
 
-                    Just next_ ->
+                    ( Just next_, () ) ->
                         go next_ ( newCosts, Set.insert here visited, ( here, costToHere ) :: trail )
     in
     go ( start, zeroCost ) ( Dict.empty, Set.empty, [] )
