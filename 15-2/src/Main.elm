@@ -16,7 +16,7 @@ solve str =
         width =
             Array.get 0 risks |> orElseCrash "No rows in expanded version?" |> Array.length
     in
-    shortestPath
+    shortestPathCost
         { start = ( 0, 0 )
         , end = ( width - 1, height - 1 )
         , toEdges = neighbouringPoints risks
@@ -25,9 +25,6 @@ solve str =
         , compareCosts = Basics.compare
         }
         |> orElseCrash "No path?"
-        |> List.head
-        |> orElseCrash "Empty path?"
-        |> Tuple.second
 
 
 parse : String -> Array (Array Int)
@@ -108,8 +105,7 @@ shortestPath { start, end, toEdges, zeroCost, combineCosts, compareCosts } =
                     next =
                         Dict.toList newCosts
                             |> List.filter (\( node, _ ) -> not <| Set.member node visited)
-                            |> List.sortWith (\( _, cost1 ) ( _, cost2 ) -> compareCosts cost1 cost2)
-                            |> List.head
+                            |> minimumWith (\( _, cost1 ) ( _, cost2 ) -> compareCosts cost1 cost2)
                             |> Debug.log "Next position? "
                 in
                 case ( next, () ) of
@@ -120,6 +116,83 @@ shortestPath { start, end, toEdges, zeroCost, combineCosts, compareCosts } =
                         go next_ ( newCosts, Set.insert here visited, ( here, costToHere ) :: trail )
     in
     go ( start, zeroCost ) ( Dict.empty, Set.empty, [] )
+
+
+{-| Save some time and memory when only the cost of the shortest path is needed without the path.
+-}
+shortestPathCost :
+    { start : comparable
+    , end : comparable
+    , toEdges : comparable -> List ( comparable, cost )
+    , zeroCost : cost
+    , combineCosts : cost -> cost -> cost
+    , compareCosts : cost -> cost -> Order
+    }
+    -> Maybe cost
+shortestPathCost { start, end, toEdges, zeroCost, combineCosts, compareCosts } =
+    let
+        go ( here, costToHere ) ( costs, visited ) =
+            if here == end then
+                Just costToHere
+
+            else
+                let
+                    newCosts =
+                        List.foldl
+                            (\( neighbour, costFromHere ) acc ->
+                                let
+                                    newPathCost =
+                                        combineCosts costToHere costFromHere
+                                in
+                                case Dict.get neighbour acc of
+                                    Just existingCost ->
+                                        if compareCosts newPathCost existingCost == LT then
+                                            Dict.insert neighbour newPathCost acc
+
+                                        else
+                                            acc
+
+                                    Nothing ->
+                                        Dict.insert neighbour newPathCost acc
+                            )
+                            costs
+                            (toEdges here)
+
+                    next =
+                        Dict.toList newCosts
+                            |> List.filter (\( node, _ ) -> not <| Set.member node visited)
+                            |> minimumWith (\( _, cost1 ) ( _, cost2 ) -> compareCosts cost1 cost2)
+                            |> Debug.log "Next position? "
+                in
+                case ( next, () ) of
+                    ( Nothing, () ) ->
+                        Nothing
+
+                    ( Just next_, () ) ->
+                        go next_ ( newCosts, Set.insert here visited )
+    in
+    go ( start, zeroCost ) ( Dict.empty, Set.empty )
+
+
+minimumWith : (a -> a -> Order) -> List a -> Maybe a
+minimumWith f list =
+    case list of
+        x :: xs ->
+            Just
+                (List.foldl
+                    (\y bestSoFar ->
+                        if f y bestSoFar == LT then
+                            y
+
+                        else
+                            bestSoFar
+                    )
+                    x
+                    xs
+                )
+
+        _ ->
+            Nothing
 
 
 iterate : Int -> (a -> a) -> a -> a
