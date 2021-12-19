@@ -103,8 +103,8 @@ shortestPath { start, end, toEdges, zeroCost, combineCosts, compareCosts } =
                             (toEdges here |> List.filter (\( node, _ ) -> not <| Set.member node visited))
 
                     next =
-                        Dict.toList newCosts
-                            |> List.filter (\( node, _ ) -> not <| Set.member node visited)
+                        Dict.filter (\node _ -> not <| Set.member node visited) newCosts
+                            |> Dict.toList
                             |> minimumWith (\( _, cost1 ) ( _, cost2 ) -> compareCosts cost1 cost2)
                             |> Debug.log "Next position? "
                 in
@@ -159,8 +159,8 @@ shortestPathCost { start, end, toEdges, zeroCost, combineCosts, compareCosts } =
                             (toEdges here |> List.filter (\( node, _ ) -> not <| Set.member node visited))
 
                     next =
-                        Dict.toList newCosts
-                            |> List.filter (\( node, _ ) -> not <| Set.member node visited)
+                        Dict.filter (\node _ -> not <| Set.member node visited) newCosts
+                            |> Dict.toList
                             |> minimumWith (\( _, cost1 ) ( _, cost2 ) -> compareCosts cost1 cost2)
                             |> Debug.log "Next position? "
                 in
