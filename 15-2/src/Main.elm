@@ -2,7 +2,7 @@ module Main exposing (..)
 
 import Array exposing (Array)
 import Dict
-import Set
+import PriorityQueue
 
 
 solve str =
@@ -20,9 +20,6 @@ solve str =
         { start = ( 0, 0 )
         , end = ( width - 1, height - 1 )
         , toEdges = neighbouringPoints risks
-        , zeroCost = 0
-        , combineCosts = (+)
-        , compareCosts = Basics.compare
         }
         |> orElseCrash "No path?"
 
@@ -55,7 +52,9 @@ expand n risks =
         (\y out ->
             List.foldl
                 (\x ->
-                    stampAt ( x * width, y * height ) (iterate (x + y) (map increment) risks)
+                    risks
+                        |> iterate (x + y) (map increment)
+                        |> stampAt ( x * width, y * height )
                 )
                 out
                 (List.range 0 (n - 1))
@@ -64,135 +63,56 @@ expand n risks =
         (List.range 0 (n - 1))
 
 
-shortestPath :
-    { start : comparable
-    , end : comparable
-    , toEdges : comparable -> List ( comparable, cost )
-    , zeroCost : cost
-    , combineCosts : cost -> cost -> cost
-    , compareCosts : cost -> cost -> Order
-    }
-    -> Maybe (List ( comparable, cost ))
-shortestPath { start, end, toEdges, zeroCost, combineCosts, compareCosts } =
-    let
-        go ( here, costToHere ) ( costs, visited, trail ) =
-            if here == end then
-                Just (( here, costToHere ) :: trail)
-
-            else
-                let
-                    newCosts =
-                        List.foldl
-                            (\( neighbour, costFromHere ) acc ->
-                                let
-                                    newPathCost =
-                                        combineCosts costToHere costFromHere
-                                in
-                                case Dict.get neighbour acc of
-                                    Just existingCost ->
-                                        if compareCosts newPathCost existingCost == LT then
-                                            Dict.insert neighbour newPathCost acc
-
-                                        else
-                                            acc
-
-                                    Nothing ->
-                                        Dict.insert neighbour newPathCost acc
-                            )
-                            costs
-                            (toEdges here |> List.filter (\( node, _ ) -> not <| Set.member node visited))
-
-                    next =
-                        Dict.filter (\node _ -> not <| Set.member node visited) newCosts
-                            |> Dict.toList
-                            |> minimumWith (\( _, cost1 ) ( _, cost2 ) -> compareCosts cost1 cost2)
-                            |> Debug.log "Next position? "
-                in
-                case ( next, () ) of
-                    ( Nothing, () ) ->
-                        Nothing
-
-                    ( Just next_, () ) ->
-                        go next_ ( newCosts, Set.insert here visited, ( here, costToHere ) :: trail )
-    in
-    go ( start, zeroCost ) ( Dict.empty, Set.empty, [] )
-
-
-{-| Save some time and memory when only the cost of the shortest path is needed without the path.
--}
 shortestPathCost :
     { start : comparable
     , end : comparable
-    , toEdges : comparable -> List ( comparable, cost )
-    , zeroCost : cost
-    , combineCosts : cost -> cost -> cost
-    , compareCosts : cost -> cost -> Order
+    , toEdges : comparable -> List ( comparable, Int )
     }
-    -> Maybe cost
-shortestPathCost { start, end, toEdges, zeroCost, combineCosts, compareCosts } =
+    -> Maybe Int
+shortestPathCost { start, end, toEdges } =
     let
-        go ( here, costToHere ) ( costs, visited ) =
-            if here == end then
-                Just costToHere
+        go ( costs, queue ) =
+            case ( PriorityQueue.head queue, PriorityQueue.tail queue ) of
+                ( Nothing, _ ) ->
+                    Nothing
 
-            else
-                let
-                    newCosts =
-                        List.foldl
-                            (\( neighbour, costFromHere ) acc ->
-                                let
-                                    newPathCost =
-                                        combineCosts costToHere costFromHere
-                                in
-                                case Dict.get neighbour acc of
-                                    Just existingCost ->
-                                        if compareCosts newPathCost existingCost == LT then
-                                            Dict.insert neighbour newPathCost acc
+                ( Just ( here, costToHere ), tail ) ->
+                    if here == end then
+                        Just costToHere
 
-                                        else
-                                            acc
+                    else
+                        go
+                            (List.foldl
+                                (\( neighbour, costFromHere ) ( costs_, queue_ ) ->
+                                    let
+                                        newPathCost =
+                                            costToHere + costFromHere
+                                    in
+                                    case Dict.get neighbour costs_ of
+                                        Just existingCost ->
+                                            if newPathCost < existingCost then
+                                                ( costs_ |> Dict.insert neighbour newPathCost
+                                                , queue_ |> PriorityQueue.insert ( neighbour, newPathCost )
+                                                )
 
-                                    Nothing ->
-                                        Dict.insert neighbour newPathCost acc
+                                            else
+                                                ( costs_
+                                                , queue_
+                                                )
+
+                                        Nothing ->
+                                            ( costs_ |> Dict.insert neighbour newPathCost
+                                            , queue_ |> PriorityQueue.insert ( neighbour, newPathCost )
+                                            )
+                                )
+                                ( costs, tail )
+                                (toEdges here)
                             )
-                            costs
-                            (toEdges here |> List.filter (\( node, _ ) -> not <| Set.member node visited))
-
-                    next =
-                        Dict.filter (\node _ -> not <| Set.member node visited) newCosts
-                            |> Dict.toList
-                            |> minimumWith (\( _, cost1 ) ( _, cost2 ) -> compareCosts cost1 cost2)
-                            |> Debug.log "Next position? "
-                in
-                case ( next, () ) of
-                    ( Nothing, () ) ->
-                        Nothing
-
-                    ( Just next_, () ) ->
-                        go next_ ( newCosts, Set.insert here visited )
     in
-    go ( start, zeroCost ) ( Dict.empty, Set.empty )
-
-
-minimumWith : (a -> a -> Order) -> List a -> Maybe a
-minimumWith f list =
-    case list of
-        x :: xs ->
-            Just
-                (List.foldl
-                    (\y bestSoFar ->
-                        if f y bestSoFar == LT then
-                            y
-
-                        else
-                            bestSoFar
-                    )
-                    x
-                    xs
-                )
-
-        _ ->
-            Nothing
+    go
+        ( Dict.fromList [ ( start, 0 ) ]
+        , PriorityQueue.fromList (\( _, cost ) -> cost) [ ( start, 0 ) ]
+        )
 
 
 iterate : Int -> (a -> a) -> a -> a
@@ -221,16 +141,6 @@ orElseCrash str maybe =
 
 type alias Point a =
     ( ( Int, Int ), a )
-
-
-neighbouringPositions : ( Int, Int ) -> List ( Int, Int )
-neighbouringPositions ( x, y ) =
-    List.map (\( dx, dy ) -> ( x + dx, y + dy ))
-        [ ( 0, -1 )
-        , ( -1, 0 )
-        , ( 1, 0 )
-        , ( 0, 1 )
-        ]
 
 
 neighbouringPoints : Array (Array a) -> ( Int, Int ) -> List (Point a)
