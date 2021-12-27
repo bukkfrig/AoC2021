@@ -1,4 +1,4 @@
-module Main exposing (solve)
+module Main exposing (..)
 
 import Regex
 
@@ -6,34 +6,38 @@ import Regex
 solve str =
     case parse str |> orElseCrash "Input problem with bounds" of
         (Bounds ( _, x2 ) ( y1, _ )) as bounds ->
-            (List.range 0 x2
-                |> List.concatMap
-                    (\initialVX ->
-                        let
-                            go initialVY hits =
-                                if initialVY > -y1 then
-                                    hits
-
-                                else
-                                    case shoot initialVX initialVY bounds of
-                                        Overshot ->
+            let
+                hitsFromUpwardTrajectories =
+                    List.range 0 x2
+                        |> List.foldl
+                            (\initialVX acc ->
+                                let
+                                    go initialVY hits =
+                                        if initialVY > -y1 then
                                             hits
 
-                                        Hit _ ->
-                                            go (initialVY + 1) (( initialVX, initialVY ) :: hits)
+                                        else
+                                            case shoot initialVX initialVY bounds of
+                                                Overshot ->
+                                                    hits
 
-                                        Missed ->
-                                            go (initialVY + 1) hits
+                                                Hit ->
+                                                    go (initialVY + 1) (hits + 1)
 
-                                        Undershot ->
-                                            hits
-                        in
-                        go 0 []
-                    )
-            )
-                ++ (List.range 0 x2
-                        |> List.concatMap
-                            (\initialVX ->
+                                                Missed ->
+                                                    go (initialVY + 1) hits
+
+                                                Undershot ->
+                                                    hits
+                                in
+                                acc + go 0 0
+                            )
+                            0
+
+                hitsWithDownwardTrajectories =
+                    List.range 0 x2
+                        |> List.foldl
+                            (\initialVX acc ->
                                 let
                                     go initialVY hits =
                                         if initialVY < y1 then
@@ -44,8 +48,8 @@ solve str =
                                                 Overshot ->
                                                     go (initialVY - 1) hits
 
-                                                Hit _ ->
-                                                    go (initialVY - 1) (( initialVX, initialVY ) :: hits)
+                                                Hit ->
+                                                    go (initialVY - 1) (hits + 1)
 
                                                 Missed ->
                                                     go (initialVY - 1) hits
@@ -53,10 +57,11 @@ solve str =
                                                 Undershot ->
                                                     hits
                                 in
-                                go -1 []
+                                acc + go -1 0
                             )
-                   )
-                |> List.length
+                            0
+            in
+            hitsFromUpwardTrajectories + hitsWithDownwardTrajectories
 
 
 parse : String -> Maybe Bounds
@@ -77,17 +82,12 @@ parse input =
 shoot : Int -> Int -> Bounds -> ShotResult
 shoot vx0 vy0 bounds =
     let
-        go x y vx vy best =
+        go x y vx vy =
             if isRightOf ( x, y ) bounds then
                 Overshot
 
             else if contains ( x, y ) bounds then
-                case best of
-                    Just best_ ->
-                        Hit (max y best_)
-
-                    Nothing ->
-                        Hit y
+                Hit
 
             else if vx == 0 && isLeftOf ( x, y ) bounds then
                 Undershot
@@ -103,19 +103,14 @@ shoot vx0 vy0 bounds =
                     vy_ =
                         vy - 1
                 in
-                case best of
-                    Just best_ ->
-                        go (x + vx_) (y + vy_) vx_ vy_ (Just (max y best_))
-
-                    Nothing ->
-                        go (x + vx_) (y + vy_) vx_ vy_ (Just y)
+                go (x + vx_) (y + vy_) vx_ vy_
     in
-    go vx0 vy0 vx0 vy0 Nothing
+    go vx0 vy0 vx0 vy0
 
 
 type ShotResult
     = Overshot
-    | Hit Int
+    | Hit
     | Missed
     | Undershot
 
