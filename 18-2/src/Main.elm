@@ -1,13 +1,14 @@
-module Main exposing (..)
+module Main exposing (solve)
 
-import Char
-import List.Extra
+import Array exposing (Array)
+import Parser exposing ((|.), (|=), Parser)
 
 
 solve str =
     let
+        snails : List (Array Token)
         snails =
-            List.map (orElseCrash "Couldn't parse a snail number?") (parse str)
+            List.map (okOrCrash "Couldn't parse a snail number?") (parse str)
     in
     List.foldl
         (\first best ->
@@ -19,252 +20,246 @@ solve str =
         snails
 
 
-parse : String -> List (Maybe Snail)
+parse : String -> List (Result (List Parser.DeadEnd) (Array Token))
 parse str =
     String.lines str
-        |> List.map (String.toList >> readSnail >> Maybe.map .value)
+        |> List.map (Parser.run parseTokens)
+
+
+parseTokens : Parser (Array Token)
+parseTokens =
+    Parser.loop []
+        (\tokens ->
+            Parser.oneOf
+                [ Parser.succeed (\() -> Parser.Loop (Open :: tokens))
+                    |= Parser.symbol "["
+                , Parser.succeed (\() -> Parser.Loop (Close :: tokens))
+                    |= Parser.symbol "]"
+                , Parser.succeed (\() -> Parser.Loop tokens)
+                    |= Parser.symbol ","
+                , Parser.succeed (\token -> Parser.Loop (Regular token :: tokens))
+                    |= Parser.int
+                , Parser.succeed (\() -> Parser.Done (Array.fromList (List.reverse tokens)))
+                    |= Parser.end
+                ]
+        )
 
 
 
 -- Snail number logic
 
 
-type Snail
-    = R Int
-    | S ( Snail, Snail )
+type alias Tokens =
+    Array Token
 
 
-magnitude : Snail -> Int
+type Token
+    = Open
+    | Close
+    | Regular Int
+
+
+magnitude : Tokens -> Int
 magnitude sn =
-    case sn of
-        R n ->
-            n
-
-        S ( n1, n2 ) ->
-            3 * magnitude n1 + 2 * magnitude n2
+    magnitudeHelp 0 [] sn
 
 
-toString : Snail -> String
-toString sn =
-    case sn of
-        R n ->
-            String.fromInt n
+magnitudeHelp index stack tokens =
+    case Array.get index tokens of
+        Just (Regular n2) ->
+            case stack of
+                [] ->
+                    n2
 
-        S ( a, b ) ->
-            "[" ++ toString a ++ "," ++ toString b ++ "]"
+                ( Nothing, Nothing ) :: xs ->
+                    magnitudeHelp (index + 1) (( Just n2, Nothing ) :: xs) tokens
+
+                ( Just n1, Nothing ) :: xs ->
+                    magnitudeHelp (index + 1) (( Just n1, Just n2 ) :: xs) tokens
+
+                _ ->
+                    Debug.todo "This stack frame already complete?"
+
+        Just Open ->
+            magnitudeHelp (index + 1) (( Nothing, Nothing ) :: stack) tokens
+
+        Just Close ->
+            case stack of
+                [] ->
+                    Debug.todo "Empty stack?"
+
+                ( Just n1, Just n2 ) :: xs ->
+                    let
+                        mag =
+                            3 * n1 + 2 * n2
+                    in
+                    case xs of
+                        [] ->
+                            mag
+
+                        ( Nothing, Nothing ) :: rest ->
+                            magnitudeHelp (index + 1) (( Just mag, Nothing ) :: rest) tokens
+
+                        ( Just m1, Nothing ) :: rest ->
+                            magnitudeHelp (index + 1) (( Just m1, Just mag ) :: rest) tokens
+
+                        _ ->
+                            Debug.todo "Next stack frame already complete?"
+
+                _ ->
+                    Debug.todo "Incomplete stack frame?"
+
+        Nothing ->
+            Debug.todo "Stack didn't empty before end of tokens?"
 
 
-add : Snail -> Snail -> Snail
+add : Tokens -> Tokens -> Tokens
 add s1 s2 =
-    reduce (S ( s1, s2 ))
+    reduce
+        (Array.empty
+            |> Array.push Open
+            |> (\tokens -> Array.append tokens s1)
+            |> (\tokens -> Array.append tokens s2)
+            |> Array.push Close
+        )
 
 
-reduce : Snail -> Snail
+reduce : Tokens -> Tokens
 reduce sn =
     case explode sn of
-        exploded ->
-            if sn /= exploded then
-                reduce exploded
+        Exploded tokens ->
+            reduce tokens
 
-            else
-                case split exploded of
-                    splitted ->
-                        if exploded /= splitted then
-                            reduce splitted
+        NotExploded ->
+            case split sn of
+                Split tokens ->
+                    reduce tokens
 
-                        else
-                            splitted
+                NotSplit ->
+                    sn
 
 
-explode : Snail -> Snail
+type ExplodeResult
+    = Exploded Tokens
+    | NotExploded
+
+
+type SplitResult
+    = Split Tokens
+    | NotSplit
+
+
+deletePairStartingAt : Int -> Tokens -> Tokens
+deletePairStartingAt n tokens =
+    tokens
+        |> Array.slice 0 (n - 1)
+        |> Array.push (Regular 0)
+        |> (\t -> Array.append t (Array.slice (n + 3) (Array.length tokens) tokens))
+
+
+explode : Tokens -> ExplodeResult
 explode sn =
-    let
-        go : ( List Char, Int, List Char ) -> Snail
-        go ( prev, depth, next ) =
-            case next of
-                [] ->
-                    sn
-
-                a :: rest ->
-                    if a == ']' then
-                        go ( a :: prev, depth - 1, rest )
-
-                    else if a == '[' && depth < 4 then
-                        go ( a :: prev, depth + 1, rest )
-
-                    else if a /= '[' then
-                        go ( a :: prev, depth, rest )
-
-                    else
-                        let
-                            snail =
-                                readSnail next
-                        in
-                        case snail of
-                            Just { stream, value } ->
-                                case value of
-                                    S ( R left, R right ) ->
-                                        let
-                                            prev_ =
-                                                let
-                                                    beforeLeftInt =
-                                                        prev
-                                                            |> List.Extra.takeWhile (not << Char.isDigit)
-
-                                                    withNearest =
-                                                        prev
-                                                            |> List.Extra.dropWhile (not << Char.isDigit)
-
-                                                    leftInt =
-                                                        withNearest
-                                                            |> List.Extra.takeWhile Char.isDigit
-                                                            |> List.reverse
-                                                            |> String.fromList
-                                                            |> String.toInt
-
-                                                    afterLeftInt =
-                                                        withNearest |> List.Extra.dropWhile Char.isDigit
-                                                in
-                                                case leftInt of
-                                                    Nothing ->
-                                                        beforeLeftInt
-
-                                                    Just n ->
-                                                        beforeLeftInt
-                                                            ++ (left + n |> String.fromInt |> String.toList |> List.reverse)
-                                                            ++ afterLeftInt
-
-                                            next_ =
-                                                let
-                                                    beforeRightInt =
-                                                        stream
-                                                            |> List.Extra.takeWhile (not << Char.isDigit)
-
-                                                    withNearest =
-                                                        stream
-                                                            |> List.Extra.dropWhile (not << Char.isDigit)
-
-                                                    rightInt =
-                                                        withNearest
-                                                            |> List.Extra.takeWhile Char.isDigit
-                                                            |> String.fromList
-                                                            |> String.toInt
-
-                                                    afterRightInt =
-                                                        withNearest |> List.Extra.dropWhile Char.isDigit
-                                                in
-                                                case rightInt of
-                                                    Nothing ->
-                                                        beforeRightInt
-
-                                                    Just n ->
-                                                        beforeRightInt
-                                                            ++ (right + n |> String.fromInt |> String.toList)
-                                                            ++ afterRightInt
-                                        in
-                                        readSnail (List.reverse prev_ ++ ('0' :: next_))
-                                            |> Maybe.map .value
-                                            |> orElseCrash "Couldn't read the reconstructed snail after exploding?"
-
-                                    _ ->
-                                        Debug.todo "Value at depth 4 is not a pair of regular numbers?"
-
-                            Nothing ->
-                                Debug.todo "Characters at start of depth 4 are not a snail number?"
-    in
-    go ( [], 0, toString sn |> String.toList )
+    explodeHelp 0 0 Nothing sn
 
 
-split : Snail -> Snail
-split sn =
-    let
-        go todo done =
-            case todo of
-                [] ->
-                    sn
+explodeHelp : Int -> Int -> Maybe ( Int, Int ) -> Tokens -> ExplodeResult
+explodeHelp index depth lastRegular sn =
+    if depth > 4 then
+        case ( Array.get index sn, Array.get (index + 1) sn ) of
+            ( Just (Regular n1), Just (Regular n2) ) ->
+                (case ( lastRegular, arrayFind isRegular (Array.slice (index + 3) (Array.length sn) sn) ) of
+                    ( Just ( li, l1 ), Just ( ri, Regular r1 ) ) ->
+                        sn |> Array.set li (Regular (l1 + n1)) |> Array.set (ri + index + 3) (Regular (r1 + n2))
 
-                a :: rest ->
-                    case readInt todo of
-                        Just { stream, value } ->
-                            if value < 10 then
-                                go stream ((String.fromInt value |> String.toList |> List.reverse) ++ done)
+                    ( Just ( li, l1 ), Nothing ) ->
+                        Array.set li (Regular (l1 + n1)) sn
 
-                            else
-                                let
-                                    left =
-                                        (value // 2) |> String.fromInt |> String.toList
+                    ( Nothing, Just ( ri, Regular r1 ) ) ->
+                        Array.set (ri + index + 3) (Regular (r1 + n2)) sn
 
-                                    right =
-                                        ceiling (toFloat value / 2) |> String.fromInt |> String.toList
-                                in
-                                List.reverse done
-                                    ++ ('[' :: left ++ ',' :: right ++ [ ']' ])
-                                    ++ stream
-                                    |> readSnail
-                                    |> Maybe.map .value
-                                    |> orElseCrash "Couldn't read reconstructed string after splitting?"
+                    ( Nothing, Nothing ) ->
+                        sn
 
-                        Nothing ->
-                            go rest (a :: done)
-    in
-    go (sn |> toString |> String.toList) []
+                    _ ->
+                        Debug.todo "Found something that wasn't regular?"
+                )
+                    |> deletePairStartingAt index
+                    |> Exploded
 
+            _ ->
+                Debug.todo ("Not a pair at depth 4 with index " ++ Debug.toString index)
 
+    else
+        case Array.get index sn of
+            Nothing ->
+                NotExploded
 
--- Reading from list of characters
+            Just Open ->
+                explodeHelp (index + 1) (depth + 1) lastRegular sn
 
+            Just Close ->
+                explodeHelp (index + 1) (depth - 1) lastRegular sn
 
-type alias Read a =
-    { stream : List Char, value : a }
-
-
-readInt : List Char -> Maybe (Read Int)
-readInt stream =
-    let
-        ( digits, rest ) =
-            ( stream |> List.Extra.takeWhile Char.isDigit
-            , stream |> List.Extra.dropWhile Char.isDigit
-            )
-    in
-    Maybe.map (\n -> { stream = rest, value = n })
-        (String.toInt (String.fromList digits))
+            Just (Regular n1) ->
+                explodeHelp (index + 1) depth (Just ( index, n1 )) sn
 
 
-readChar : Char -> List Char -> Maybe (Read Char)
-readChar c stream =
-    case stream of
-        x :: rest ->
-            if x == c then
-                Just { stream = rest, value = c }
-
-            else
-                Nothing
+isRegular : Token -> Bool
+isRegular token =
+    case token of
+        Regular _ ->
+            True
 
         _ ->
+            False
+
+
+arrayFind : (a -> Bool) -> Array a -> Maybe ( Int, a )
+arrayFind f xs =
+    arrayFindHelp 0 f xs
+
+
+arrayFindHelp : Int -> (a -> Bool) -> Array a -> Maybe ( Int, a )
+arrayFindHelp n f xs =
+    case Array.get n xs of
+        Just x ->
+            if f x then
+                Just ( n, x )
+
+            else
+                arrayFindHelp (n + 1) f xs
+
+        Nothing ->
             Nothing
 
 
-readSnail : List Char -> Maybe (Read Snail)
-readSnail stream =
-    case stream of
-        '[' :: rest ->
-            let
-                first =
-                    rest |> readSnail
+split : Tokens -> SplitResult
+split sn =
+    splitHelp 0 sn
 
-                second =
-                    first
-                        |> Maybe.andThen (.stream >> readChar ',')
-                        |> Maybe.andThen (.stream >> readSnail)
-            in
-            Maybe.map3 (\x y s -> { stream = s.stream, value = S ( x, y ) })
-                (Maybe.map .value first)
-                (Maybe.map .value second)
-                (second |> Maybe.andThen (.stream >> readChar ']'))
 
-        _ ->
-            Maybe.map (\regular -> { stream = regular.stream, value = R regular.value })
-                (readInt stream)
+splitHelp : Int -> Tokens -> SplitResult
+splitHelp index sn =
+    case Array.get index sn of
+        Nothing ->
+            NotSplit
+
+        Just (Regular n) ->
+            if n < 10 then
+                splitHelp (index + 1) sn
+
+            else
+                sn
+                    |> Array.slice 0 index
+                    |> Array.push Open
+                    |> Array.push (Regular (n // 2))
+                    |> Array.push (Regular (ceiling (toFloat n / 2)))
+                    |> Array.push Close
+                    |> (\t -> Array.append t (Array.slice (index + 1) (Array.length sn) sn))
+                    |> Split
+
+        Just _ ->
+            splitHelp (index + 1) sn
 
 
 
@@ -278,3 +273,13 @@ orElseCrash s m =
 
         Nothing ->
             Debug.todo s
+
+
+okOrCrash : String -> Result e a -> a
+okOrCrash s r =
+    case r of
+        Ok a ->
+            a
+
+        Err e ->
+            Debug.todo (s ++ "\n" ++ Debug.toString e)
