@@ -11,7 +11,7 @@ solve str =
     in
     List.foldl
         (\first best ->
-            List.maximum (best :: List.map (add first >> magnitude) snails ++ List.map (\second -> add second first |> magnitude) snails)
+            List.maximum (best :: List.map (add first >> readSnail >> Maybe.map .value >> orElseCrash "" >> magnitude) snails ++ List.map (\second -> add second first |> readSnail |> Maybe.map .value |> orElseCrash "" |> magnitude) snails)
                 |> orElseCrash "No maximum?"
                 |> Debug.log "Maximum so far: "
         )
@@ -19,10 +19,10 @@ solve str =
         snails
 
 
-parse : String -> List (Maybe Snail)
+parse : String -> List (Maybe (List Char))
 parse str =
     String.lines str
-        |> List.map (String.toList >> readSnail >> Maybe.map .value)
+        |> List.map (String.toList >> readSnailList >> Maybe.map .value)
 
 
 
@@ -44,22 +44,13 @@ magnitude sn =
             3 * magnitude n1 + 2 * magnitude n2
 
 
-toString : Snail -> String
-toString sn =
-    case sn of
-        R n ->
-            String.fromInt n
-
-        S ( a, b ) ->
-            "[" ++ toString a ++ "," ++ toString b ++ "]"
-
-
-add : Snail -> Snail -> Snail
+add : List Char -> List Char -> List Char
 add s1 s2 =
-    reduce (S ( s1, s2 ))
+    ('[' :: s1 ++ ',' :: s2 ++ [ ']' ])
+        |> reduce
 
 
-reduce : Snail -> Snail
+reduce : List Char -> List Char
 reduce sn =
     case explode sn of
         exploded ->
@@ -76,10 +67,9 @@ reduce sn =
                             splitted
 
 
-explode : Snail -> Snail
+explode : List Char -> List Char
 explode sn =
     let
-        go : ( List Char, Int, List Char ) -> Snail
         go ( prev, depth, next ) =
             case next of
                 [] ->
@@ -162,9 +152,7 @@ explode sn =
                                                             ++ (right + n |> String.fromInt |> String.toList)
                                                             ++ afterRightInt
                                         in
-                                        readSnail (List.reverse prev_ ++ ('0' :: next_))
-                                            |> Maybe.map .value
-                                            |> orElseCrash "Couldn't read the reconstructed snail after exploding?"
+                                        List.reverse prev_ ++ ('0' :: next_)
 
                                     _ ->
                                         Debug.todo "Value at depth 4 is not a pair of regular numbers?"
@@ -172,10 +160,10 @@ explode sn =
                             Nothing ->
                                 Debug.todo "Characters at start of depth 4 are not a snail number?"
     in
-    go ( [], 0, toString sn |> String.toList )
+    go ( [], 0, sn )
 
 
-split : Snail -> Snail
+split : List Char -> List Char
 split sn =
     let
         go todo done =
@@ -184,30 +172,32 @@ split sn =
                     sn
 
                 a :: rest ->
-                    case readInt todo of
+                    case readIntList todo of
                         Just { stream, value } ->
-                            if value < 10 then
-                                go stream ((String.fromInt value |> String.toList |> List.reverse) ++ done)
+                            case value |> String.fromList |> String.toInt of
+                                Just n ->
+                                    if n < 10 then
+                                        go stream ((value |> List.reverse) ++ done)
 
-                            else
-                                let
-                                    left =
-                                        (value // 2) |> String.fromInt |> String.toList
+                                    else
+                                        let
+                                            left =
+                                                (n // 2) |> String.fromInt |> String.toList
 
-                                    right =
-                                        ceiling (toFloat value / 2) |> String.fromInt |> String.toList
-                                in
-                                List.reverse done
-                                    ++ ('[' :: left ++ ',' :: right ++ [ ']' ])
-                                    ++ stream
-                                    |> readSnail
-                                    |> Maybe.map .value
-                                    |> orElseCrash "Couldn't read reconstructed string after splitting?"
+                                            right =
+                                                ceiling (toFloat n / 2) |> String.fromInt |> String.toList
+                                        in
+                                        List.reverse done
+                                            ++ ('[' :: left ++ ',' :: right ++ [ ']' ])
+                                            ++ stream
+
+                                Nothing ->
+                                    go rest (a :: done)
 
                         Nothing ->
                             go rest (a :: done)
     in
-    go (sn |> toString |> String.toList) []
+    go sn []
 
 
 
@@ -218,16 +208,19 @@ type alias Read a =
     { stream : List Char, value : a }
 
 
-readInt : List Char -> Maybe (Read Int)
-readInt stream =
+readIntList : List Char -> Maybe (Read (List Char))
+readIntList stream =
     let
         ( digits, rest ) =
             ( stream |> List.Extra.takeWhile Char.isDigit
             , stream |> List.Extra.dropWhile Char.isDigit
             )
     in
-    Maybe.map (\n -> { stream = rest, value = n })
-        (String.toInt (String.fromList digits))
+    if digits == [] then
+        Nothing
+
+    else
+        Just { stream = rest, value = digits }
 
 
 readChar : Char -> List Char -> Maybe (Read Char)
@@ -242,6 +235,28 @@ readChar c stream =
 
         _ ->
             Nothing
+
+
+readSnailList : List Char -> Maybe (Read (List Char))
+readSnailList stream =
+    case stream of
+        '[' :: rest ->
+            let
+                first =
+                    rest |> readSnailList
+
+                second =
+                    first
+                        |> Maybe.andThen (.stream >> readChar ',')
+                        |> Maybe.andThen (.stream >> readSnailList)
+            in
+            Maybe.map3 (\x y s -> { stream = s.stream, value = '[' :: x ++ ',' :: y ++ [ ']' ] })
+                (Maybe.map .value first)
+                (Maybe.map .value second)
+                (second |> Maybe.andThen (.stream >> readChar ']'))
+
+        _ ->
+            readIntList stream
 
 
 readSnail : List Char -> Maybe (Read Snail)
@@ -265,6 +280,18 @@ readSnail stream =
         _ ->
             Maybe.map (\regular -> { stream = regular.stream, value = R regular.value })
                 (readInt stream)
+
+
+readInt : List Char -> Maybe (Read Int)
+readInt stream =
+    let
+        ( digits, rest ) =
+            ( stream |> List.Extra.takeWhile Char.isDigit
+            , stream |> List.Extra.dropWhile Char.isDigit
+            )
+    in
+    Maybe.map (\n -> { stream = rest, value = n })
+        (String.toInt (String.fromList digits))
 
 
 
