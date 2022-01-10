@@ -3,32 +3,38 @@ module Main exposing (..)
 
 solve str =
     let
-        start =
-            str
-                |> String.split ","
+        startPositions =
+            String.split "," str
                 |> List.filterMap String.toInt
 
         max =
-            List.maximum start |> Maybe.withDefault 0
+            List.maximum startPositions |> Maybe.withDefault 0
+
+        possibleAlignmentPositions =
+            List.range 0 max
     in
-    List.range 0 max
-        |> List.map (\pos -> ( pos, List.map (\x -> fuel x pos) start ))
-        |> List.map Tuple.second
-        |> List.map List.sum
+    possibleAlignmentPositions
+        |> List.map (\position -> List.sum (startPositions |> List.map (fuelCost position)))
         |> List.minimum
 
 
-fuel x pos =
+fuelCost : Int -> Int -> Int
+fuelCost destinationPosition startPosition =
     let
-        fuelhelp target ( total, fuelcost, cost ) =
-            if total + 1 >= target then
-                fuelcost + cost
+        targetDistance =
+            abs (startPosition - destinationPosition)
+
+        go stepCost distance totalCost =
+            if distance == targetDistance then
+                totalCost
 
             else
-                fuelhelp target ( total + 1, fuelcost + cost, cost + 1 )
+                go
+                    (stepCost + 1)
+                    (distance + 1)
+                    (totalCost + stepCost)
     in
-    if x == pos then
+    go
+        1
         0
-
-    else
-        fuelhelp (abs (x - pos)) ( 0, 0, 1 )
+        0
