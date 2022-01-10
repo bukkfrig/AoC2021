@@ -2,19 +2,9 @@ module Main exposing (..)
 
 
 solve str =
-    evaluate (parse str |> orElseCrash "Parse error")
-        |> orElseCrash "Evaluate error"
-
-
-parse : String -> Maybe Packet
-parse str =
-    bitstream str |> readPacket |> Maybe.map .value
-
-
-bitstream str =
-    String.toList str
-        |> List.filterMap hexToBits
-        |> List.concatMap identity
+    str
+        |> (parse >> orElseCrash "Parse error")
+        |> (evaluate >> orElseCrash "Evaluate error")
 
 
 evaluate : Packet -> Maybe Int
@@ -37,45 +27,36 @@ evaluate packet =
 
         Operator _ Greater xs ->
             case List.map evaluate xs of
-                (Just x1) :: (Just x2) :: [] ->
-                    Just
-                        (if x1 > x2 then
-                            1
-
-                         else
-                            0
-                        )
+                [ Just x1, Just x2 ] ->
+                    Just (evaluateBool (x1 > x2))
 
                 _ ->
                     Nothing
 
         Operator _ Less xs ->
             case List.map evaluate xs of
-                (Just x1) :: (Just x2) :: [] ->
-                    Just
-                        (if x1 < x2 then
-                            1
-
-                         else
-                            0
-                        )
+                [ Just x1, Just x2 ] ->
+                    Just (evaluateBool (x1 < x2))
 
                 _ ->
                     Nothing
 
         Operator _ Equal xs ->
             case List.map evaluate xs of
-                (Just x1) :: (Just x2) :: [] ->
-                    Just
-                        (if x1 == x2 then
-                            1
-
-                         else
-                            0
-                        )
+                [ Just x1, Just x2 ] ->
+                    Just (evaluateBool (x1 == x2))
 
                 _ ->
                     Nothing
+
+
+evaluateBool : Bool -> Int
+evaluateBool b =
+    if b then
+        1
+
+    else
+        0
 
 
 
@@ -138,6 +119,19 @@ type alias Bit =
     Int
 
 
+parse : String -> Maybe Packet
+parse str =
+    bitstream str
+        |> (readPacket >> Maybe.map .value)
+
+
+bitstream : String -> Bitstream
+bitstream str =
+    String.toList str
+        |> List.filterMap hexToBits
+        |> List.concat
+
+
 
 -- Reading from Bitstream
 
@@ -147,7 +141,10 @@ type alias Bitstream =
 
 
 type alias Read a =
-    { bitsConsumed : Int, stream : Bitstream, value : a }
+    { value : a
+    , bitsConsumed : Int
+    , stream : Bitstream
+    }
 
 
 readPacket : Bitstream -> Maybe (Read Packet)
@@ -161,18 +158,24 @@ readPacket stream =
     in
     typeId
         |> Maybe.andThen
-            (\{ value } ->
-                if value == 4 then
+            (\typeId_ ->
+                if typeId_.value == 4 then
                     let
                         literal =
-                            typeId |> Maybe.andThen (.stream >> readLiteralValue)
+                            typeId |> Maybe.andThen (.stream >> readLiteral)
                     in
                     Maybe.map2 Literal
                         (Maybe.map .value version)
                         (Maybe.map .value literal)
                         |> Maybe.andThen
                             (\packet ->
-                                Maybe.map4 (\b1 b2 b3 stream_ -> { bitsConsumed = b1 + b2 + b3, stream = stream_, value = packet })
+                                Maybe.map4
+                                    (\b1 b2 b3 stream_ ->
+                                        { value = packet
+                                        , bitsConsumed = b1 + b2 + b3
+                                        , stream = stream_
+                                        }
+                                    )
                                     (Maybe.map .bitsConsumed version)
                                     (Maybe.map .bitsConsumed typeId)
                                     (Maybe.map .bitsConsumed literal)
@@ -191,10 +194,10 @@ readPacket stream =
                                     packets =
                                         case length_.value of
                                             BitLength n ->
-                                                length |> Maybe.andThen (.stream >> readPacketsBits n)
+                                                length |> Maybe.andThen (.stream >> readPacketsByBits n)
 
                                             PacketCount n ->
-                                                length |> Maybe.andThen (.stream >> readPacketsCount n)
+                                                length |> Maybe.andThen (.stream >> readPacketsByCount n)
                                 in
                                 Maybe.map3 Operator
                                     (Maybe.map .value version)
@@ -202,7 +205,13 @@ readPacket stream =
                                     (Maybe.map .value packets)
                                     |> Maybe.andThen
                                         (\packet ->
-                                            Maybe.map5 (\b1 b2 b3 b4 stream_ -> { bitsConsumed = b1 + b2 + b3 + b4, stream = stream_, value = packet })
+                                            Maybe.map5
+                                                (\b1 b2 b3 b4 stream_ ->
+                                                    { value = packet
+                                                    , bitsConsumed = b1 + b2 + b3 + b4
+                                                    , stream = stream_
+                                                    }
+                                                )
                                                 (Maybe.map .bitsConsumed version)
                                                 (Maybe.map .bitsConsumed typeId)
                                                 (Maybe.map .bitsConsumed length)
@@ -241,25 +250,30 @@ readType stream =
             Nothing
 
 
-readLiteralValue : Bitstream -> Maybe (Read Int)
-readLiteralValue stream =
+readLiteral : Bitstream -> Maybe (Read Int)
+readLiteral =
     let
-        go remaining ( valueBits, bitsConsumed ) =
-            case remaining of
-                1 :: a :: b :: c :: d :: rest ->
-                    go rest ( valueBits ++ [ a, b, c, d ], bitsConsumed + 5 )
-
+        go valueBits bitsConsumed stream =
+            case stream of
                 0 :: a :: b :: c :: d :: rest ->
                     Just
-                        { bitsConsumed = bitsConsumed + 5
+                        { value = List.reverse (d :: c :: b :: a :: valueBits) |> bitsToInt
+                        , bitsConsumed = bitsConsumed + 5
                         , stream = rest
-                        , value = bitsToInt (valueBits ++ [ a, b, c, d ])
                         }
+
+                1 :: a :: b :: c :: d :: rest ->
+                    go
+                        (d :: c :: b :: a :: valueBits)
+                        (bitsConsumed + 5)
+                        rest
 
                 _ ->
                     Nothing
     in
-    go stream ( [], 0 )
+    go
+        []
+        0
 
 
 readLength : Bitstream -> Maybe (Read Length)
@@ -273,9 +287,9 @@ readLength stream =
 
                     else
                         Just
-                            { bitsConsumed = 1 + 15
+                            { value = BitLength (bitsToInt valueBits)
+                            , bitsConsumed = 1 + 15
                             , stream = rest_
-                            , value = BitLength (bitsToInt valueBits)
                             }
 
         1 :: rest ->
@@ -286,70 +300,74 @@ readLength stream =
 
                     else
                         Just
-                            { bitsConsumed = 1 + 11
+                            { value = PacketCount (bitsToInt valueBits)
+                            , bitsConsumed = 1 + 11
                             , stream = rest_
-                            , value = PacketCount (bitsToInt valueBits)
                             }
 
         _ ->
             Nothing
 
 
-readPacketsBits : Int -> Bitstream -> Maybe (Read (List Packet))
-readPacketsBits n inStream =
+readPacketsByBits : Int -> Bitstream -> Maybe (Read (List Packet))
+readPacketsByBits bits =
+    let
+        go packets bitsConsumed_ stream_ =
+            if bitsConsumed_ == bits then
+                Just
+                    { value = List.reverse packets
+                    , bitsConsumed = bitsConsumed_
+                    , stream = stream_
+                    }
+
+            else
+                case readPacket stream_ of
+                    Nothing ->
+                        identity Nothing
+
+                    Just { bitsConsumed, stream, value } ->
+                        go
+                            (value :: packets)
+                            (bitsConsumed + bitsConsumed_)
+                            stream
+    in
+    go
+        []
+        0
+
+
+readPacketsByCount : Int -> Bitstream -> Maybe (Read (List Packet))
+readPacketsByCount count =
     let
         go packets consumed stream_ =
-            case ( stream_ |> readPacket, () ) of
-                ( Just { bitsConsumed, stream, value }, () ) ->
-                    if bitsConsumed + consumed == n then
-                        Just
-                            { bitsConsumed = bitsConsumed + consumed
-                            , stream = stream
-                            , value = packets ++ [ value ]
-                            }
+            if List.length packets == count then
+                Just
+                    { value = List.reverse packets
+                    , bitsConsumed = consumed
+                    , stream = stream_
+                    }
 
-                    else
+            else
+                case readPacket stream_ of
+                    Nothing ->
+                        identity Nothing
+
+                    Just { bitsConsumed, stream, value } ->
                         go
-                            (packets ++ [ value ])
+                            (value :: packets)
                             (bitsConsumed + consumed)
                             stream
-
-                ( Nothing, () ) ->
-                    Nothing
     in
-    go [] 0 inStream
-
-
-readPacketsCount : Int -> Bitstream -> Maybe (Read (List Packet))
-readPacketsCount n inStream =
-    let
-        go packets consumed stream_ =
-            case ( stream_ |> readPacket, () ) of
-                ( Just { bitsConsumed, stream, value }, () ) ->
-                    if List.length packets + 1 == n then
-                        Just
-                            { bitsConsumed = bitsConsumed + consumed
-                            , stream = stream
-                            , value = packets ++ [ value ]
-                            }
-
-                    else
-                        go
-                            (packets ++ [ value ])
-                            (bitsConsumed + consumed)
-                            stream
-
-                ( Nothing, () ) ->
-                    Nothing
-    in
-    go [] 0 inStream
+    go
+        []
+        0
 
 
 
 -- Basics
 
 
-bitsToInt : List Int -> Int
+bitsToInt : List Bit -> Int
 bitsToInt =
     List.foldl (\bit acc -> bit + 2 * acc) 0
 
